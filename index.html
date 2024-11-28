@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Postleitzahlen Zentrum Berechner</title>
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <!-- CSS Styling -->
+    <style>
+        /* General body styling */
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(to right, #6dd5fa, #ffffff);
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+            /* Prevent scroll bars */
+        }
+
+        /* Center container styling */
+        .container {
+            position: absolute;
+            /* Absolute positioning for overlay */
+            background: rgba(255, 255, 255, 0.9);
+            /* Slightly transparent background */
+            padding: 30px 50px;
+            border-radius: 12px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            width: 400px;
+            z-index: 1000;
+            transition: opacity 0.5s;
+            /* Smooth fade-out */
+        }
+
+        /* Heading style */
+        h1 {
+            color: #333;
+            font-size: 24px;
+            margin-bottom: 20px;
+        }
+
+        /* Form label styling */
+        label {
+            display: block;
+            font-weight: bold;
+            color: #555;
+            margin-bottom: 8px;
+        }
+
+        /* Input styling */
+        input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-sizing: border-box;
+            transition: border 0.3s ease-in-out;
+        }
+
+        /* Input focus effect */
+        input[type="text"]:focus {
+            border: 1px solid #1e90ff;
+            outline: none;
+        }
+
+        /* Submit button styling */
+        input[type="submit"] {
+            background: #1e90ff;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background 0.3s ease-in-out;
+        }
+
+        /* Submit button hover effect */
+        input[type="submit"]:hover {
+            background: #155b9a;
+        }
+
+        /* Progress Bar Container */
+        .progress-container {
+            display: none;
+            width: 100%;
+            background: #f3f3f3;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+
+        /* Progress Bar */
+        .progress-bar {
+            width: 0;
+            height: 18px;
+            background-color: #1e90ff;
+            border-radius: 8px;
+            transition: width 0.4s ease;
+        }
+
+        /* Map styling */
+        #map {
+            position: absolute;
+            /* Positioning for full-screen map */
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            /* Ensure map is below the container */
+        }
+
+        /* Back Button */
+        .back-button {
+            position: absolute;
+            top: 20px;
+            left: 55px;
+            background: #f56c6c;
+            color: white;
+            border: none;
+            padding: 12px 18px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            display: none;
+            z-index: 1000;
+        }
+
+        .back-button:hover {
+            background: #d45959;
+        }
+
+        /* Responsive styling for smaller screens */
+        @media (max-width: 768px) {
+            .container {
+                width: 90%;
+            }
+
+            input[type="text"] {
+                padding: 10px;
+            }
+
+            input[type="submit"] {
+                padding: 10px 16px;
+                font-size: 14px;
+            }
+        }
+    </style>
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script>
+        var processing = false;
+        var map;
+        var markerLayer = null;  // To store and manage the marker layer
+
+        // Use cached or OpenStreetMap Nominatim API results for lt, lng
+        async function getLatLngFromPLZ(plz) {
+            // cached?
+            const storedData = localStorage.getItem(plz);
+            if (storedData) {
+                console.log(`Using cached data for PLZ: ${plz}`);
+                return JSON.parse(storedData);
+            }
+
+            // api?
+            const url = `https://nominatim.openstreetmap.org/search?q=${plz},Germany&format=json`;
+            const response = await fetch(url);
+            const data = await response.json();
+
+            if (data && data.length > 0) {
+                const location = {
+                    lat: parseFloat(data[0].lat),
+                    lng: parseFloat(data[0].lon),
+                    display_name: data[0].display_name
+                };
+
+                // Store the location in local storage for future use
+                localStorage.setItem(plz, JSON.stringify(location));
+                return location;
+            } else {
+                console.log(`Location for postal code ${plz} not found.`);
+                return null;
+            }
+        }
+
+        async function findCenterLocation(event) {
+            event.preventDefault();
+
+            if (processing) return;
+            processing = true;
+
+            // separate inputs
+            const plzInput = document.getElementById("postalCodes").value;
+            const postalCodes = plzInput.split(",").map(plz => plz.trim());
+
+            // show progress bar
+            const progressContainer = document.getElementById("progress-container");
+            const progressBar = document.getElementById("progress-bar");
+            progressContainer.style.display = "block";
+
+            // Fetch lat/lng for each postal code
+            let locations = [];
+            for (let i = 0; i < postalCodes.length; i++) {
+                const plz = postalCodes[i];
+                const loc = await getLatLngFromPLZ(plz);
+                if (loc) {
+                    locations.push(loc);
+                }
+
+                // Update progress bar
+                const progressPercent = ((i + 1) / postalCodes.length) * 100;
+                progressBar.style.width = progressPercent + "%";
+            }
+
+            processing = false;
+
+            // If no valid locations found, alert the user
+            if (locations.length === 0) {
+                alert("No matching postal codes found. Please try again.");
+                return;
+            }
+
+            // Calculate the center position
+            const centerLat = locations.reduce((sum, loc) => sum + loc.lat, 0) / locations.length;
+            const centerLng = locations.reduce((sum, loc) => sum + loc.lng, 0) / locations.length;
+
+            // Redirect to Google Maps with a pin at the center point
+            //const mapsUrl = `https://www.google.com/maps?q=${centerLat},${centerLng}`;
+            //window.location.href = mapsUrl;
+
+            // swap to map view
+            document.querySelector(".container").style.display = "none";
+            document.getElementById("progress-container").style.display = "none";
+            document.getElementById("map").style.display = "block";
+            document.querySelector(".back-button").style.display = "block";
+
+            // Show the map
+            // Initialize the map only if it hasn't been created
+            if (!map) {
+                map = L.map('map').setView([centerLat, centerLng], 10);
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    maxZoom: 19,
+                    attribution: '© OpenStreetMap'
+                }).addTo(map);
+            }
+
+            // Remove old markers if they exist
+            if (markerLayer) {
+                map.removeLayer(markerLayer);
+            }
+
+            // Create a new layer group for markers
+            markerLayer = L.layerGroup();
+            locations.forEach(loc => {
+                L.marker([loc.lat, loc.lng])
+                    .addTo(markerLayer)
+                    .bindPopup(loc.display_name);
+            });
+
+            // Highlight the center point
+            const centerMarker = L.marker([centerLat, centerLng], {
+                icon: L.icon({
+                    iconUrl: 'https://img.icons8.com/?size=100&id=0IQZQ1dRTUJD&format=png&color=000000',
+                    iconSize: [24, 24],
+                })
+            }).addTo(map).bindPopup('Zentrum'); //.openPopup();
+
+            // Add all markers to the new layer group and add to map
+            markerLayer.addLayer(centerMarker).addTo(map);
+
+            // Zoom to fit all markers
+            const group = L.featureGroup([...locations.map(loc => L.marker([loc.lat, loc.lng])), centerMarker]);
+            map.fitBounds(group.getBounds());
+        }
+
+        function goBackToSearch() {
+            document.querySelector("#map").style.display = "none";
+            document.querySelector(".back-button").style.display = "none";
+            document.querySelector(".container").style.display = "block";
+            if (map) map.setView([51.1657, 10.4515], 5);  // Reset to Germany center
+        }
+    </script>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Postleitzahlen Zentrum Rechner</h1>
+        <form id="plzForm" onsubmit="findCenterLocation(event)">
+            <label for="postalCodes">Postleitzahlen / Ortsnamen (kommasepariert):</label>
+            <input type="text" id="postalCodes" name="postalCodes" placeholder="85375, 85354, 85386">
+            <input type="submit" value="Start">
+        </form>
+        <!-- Progress Bar -->
+        <div class="progress-container" id="progress-container">
+            <div class="progress-bar" id="progress-bar"></div>
+        </div>
+    </div>
+    <!-- Back Button -->
+    <button class="back-button" onclick="goBackToSearch()">Zurück</button>
+
+    <!-- Map -->
+    <div id="map"></div>
+</body>
+
+</html>
